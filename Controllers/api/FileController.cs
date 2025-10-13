@@ -48,6 +48,9 @@ namespace Cryptex.Controllers.api
             if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
 
+            if (Path.GetExtension(request.File.FileName) != ".enc")
+                return BadRequest("Nieprawidłowy format pliku. Oczekiwano pliku z rozszerzeniem .enc");
+
             try
             {
                 using var ms = new MemoryStream();
@@ -64,13 +67,13 @@ namespace Cryptex.Controllers.api
                 
                 return File(plain, "application/octet-stream", originalName);
             }
-            catch (InvalidPasswordException)
+            catch (InvalidPasswordException exception)
             {
-                return BadRequest("Błędne hasło.");
+                return BadRequest(exception.Message);
             }
-            catch (CorruptedFileException)
+            catch (CorruptedFileException exception)
             {
-                return BadRequest("Plik jest uszkodzony.");
+                return BadRequest(exception.Message);
             }
         }
     }
