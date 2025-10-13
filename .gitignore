@@ -1,0 +1,49 @@
+# Build results
+bin/
+obj/
+out/
+Debug/
+Release/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE (Visual Studio / Rider / VS Code)
+.vs/
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# NuGet packages
+*.nupkg
+*.snupkg
+*.nuspec
+packages/
+
+# Docker
+*.pid
+*.tar
+docker-compose.override.yml
+
+# Environment variables
+.env
+.env.*
+
+# Publish output
+/publish/
+/wwwroot/dist/
+/wwwroot/build/
+
+# OS-specific junk
+.DS_Store
+Thumbs.db
