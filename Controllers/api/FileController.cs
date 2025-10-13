@@ -1,8 +1,8 @@
-using FileEncryptor.Models;
-using FileEncryptor.Services;
+using Cryptex.Models;
+using Cryptex.Services;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FileEncryptor.Controllers
+namespace Cryptex.Controllers.api
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -12,6 +12,12 @@ namespace FileEncryptor.Controllers
         public FileController(EncryptionService encService)
         {
             _encService = encService;
+        }
+
+        [HttpGet("ping")]
+        public IActionResult Ping()
+        {
+            return Ok("Pong");
         }
 
         [HttpPost("encrypt")]

@@ -1,4 +1,4 @@
-namespace FileEncryptor.Models
+namespace Cryptex.Models
 {
     public class FileRequest
     {

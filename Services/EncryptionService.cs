@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace FileEncryptor.Services
+namespace Cryptex.Services
 {
     public class EncryptionService
     {
@@ -9,7 +9,7 @@ namespace FileEncryptor.Services
             salt = RandomNumberGenerator.GetBytes(16);
             iv = RandomNumberGenerator.GetBytes(12);
 
-            using var aes = new AesGcm(DeriveKey(password, salt));
+            using var aes = new AesGcm(DeriveKey(password, salt), tagSizeInBytes: 16);
             var cipher = new byte[data.Length];
             var tag = new byte[16];
             aes.Encrypt(iv, data, cipher, tag);
@@ -21,16 +21,19 @@ namespace FileEncryptor.Services
         {
             var cipher = encryptedData[..^16];
             var tag = encryptedData[^16..];
-            using var aes = new AesGcm(DeriveKey(password, salt));
             var plain = new byte[cipher.Length];
+
+            using var aes = new AesGcm(DeriveKey(password, salt), tagSizeInBytes: 16);
+            
             aes.Decrypt(iv, cipher, tag, plain);
+            
             return plain;
         }
 
         private static byte[] DeriveKey(string password, byte[] salt)
         {
             using var kdf = new Rfc2898DeriveBytes(password, salt, 100_000, HashAlgorithmName.SHA256);
-            return kdf.GetBytes(32); // 256-bit key
+            return kdf.GetBytes(32); 
         }
     }
 }
