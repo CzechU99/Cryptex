@@ -1,6 +1,7 @@
 using Cryptex.Models;
 using Cryptex.Services;
 using Microsoft.AspNetCore.Mvc;
+using Cryptex.Exceptions;
 
 namespace Cryptex.Controllers.api
 {
@@ -14,51 +15,68 @@ namespace Cryptex.Controllers.api
             _encService = encService;
         }
 
-        [HttpGet("ping")]
-        public IActionResult Ping()
-        {
-            return Ok("Pong");
-        }
-
         [HttpPost("encrypt")]
         public async Task<IActionResult> Encrypt([FromForm] FileRequest request)
         {
-            if(request.File == null || string.IsNullOrWhiteSpace(request.Password))
+            if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
 
-            using var ms = new MemoryStream();
-            await request.File.CopyToAsync(ms);
-            var data = ms.ToArray();
+            if (request.Password.Length < 8)
+                return BadRequest("Hasło musi mieć co najmniej 8 znaków.");
 
-            var cipher = _encService.Encrypt(data, request.Password, out var iv, out var salt);
+            try
+            {
+                using var ms = new MemoryStream();
+                await request.File.CopyToAsync(ms);
+                var data = ms.ToArray();
 
-            var result = salt.Concat(iv).Concat(cipher).ToArray();
-            return File(result, "application/octet-stream", request.File.FileName + ".enc");
+                var cipher = _encService.Encrypt(data, request.Password, out var iv, out var salt, out var passwordHash);
+
+                // Struktura pliku: salt (16) | iv (12) | cipher + tag | passwordHash (32)
+                var result = salt.Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
+                
+                return File(result, "application/octet-stream", request.File.FileName + ".enc");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Błąd podczas szyfrowania: {ex.Message}");
+            }
         }
 
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] FileRequest request)
         {
-            if(request.File == null || string.IsNullOrWhiteSpace(request.Password))
+            if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
-
-            using var ms = new MemoryStream();
-            await request.File.CopyToAsync(ms);
-            var allBytes = ms.ToArray();
-
-            var salt = allBytes[..16];
-            var iv = allBytes[16..28];
-            var cipher = allBytes[28..];
 
             try
             {
-                var plain = _encService.Decrypt(cipher, request.Password, iv, salt);
-                var originalName = request.File.FileName.Replace(".enc","");
+                using var ms = new MemoryStream();
+                await request.File.CopyToAsync(ms);
+                var allBytes = ms.ToArray();
+
+                // Struktura pliku: salt (16) | iv (12) | cipher + tag | passwordHash (32)
+                var salt = allBytes[..16];
+                var iv = allBytes[16..28];
+                var passwordHash = allBytes[^32..];
+                var cipherWithTag = allBytes[28..^32];
+
+                var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash);
+                var originalName = request.File.FileName.Replace(".enc", "");
+                
                 return File(plain, "application/octet-stream", originalName);
             }
-            catch
+            catch (InvalidPasswordException)
             {
-                return BadRequest("Nie udało się odszyfrować. Sprawdź hasło lub plik.");
+                return BadRequest("Błędne hasło.");
+            }
+            catch (CorruptedFileException)
+            {
+                return BadRequest("Plik jest uszkodzony.");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Błąd podczas deszyfrowania: {ex.Message}");
             }
         }
     }
