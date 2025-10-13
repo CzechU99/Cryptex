@@ -1,0 +1,1 @@
+Struktura pliku: salt (16) | iv (12) | cipher + tag | passwordHash (32)

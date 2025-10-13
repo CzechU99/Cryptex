@@ -32,7 +32,6 @@ namespace Cryptex.Controllers.api
 
                 var cipher = _encService.Encrypt(data, request.Password, out var iv, out var salt, out var passwordHash);
 
-                // Struktura pliku: salt (16) | iv (12) | cipher + tag | passwordHash (32)
                 var result = salt.Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
                 
                 return File(result, "application/octet-stream", request.File.FileName + ".enc");
@@ -55,7 +54,6 @@ namespace Cryptex.Controllers.api
                 await request.File.CopyToAsync(ms);
                 var allBytes = ms.ToArray();
 
-                // Struktura pliku: salt (16) | iv (12) | cipher + tag | passwordHash (32)
                 var salt = allBytes[..16];
                 var iv = allBytes[16..28];
                 var passwordHash = allBytes[^32..];
@@ -73,10 +71,6 @@ namespace Cryptex.Controllers.api
             catch (CorruptedFileException)
             {
                 return BadRequest("Plik jest uszkodzony.");
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Błąd podczas deszyfrowania: {ex.Message}");
             }
         }
     }
