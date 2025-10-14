@@ -16,7 +16,7 @@ namespace Cryptex.Controllers.api
         }
 
         [HttpPost("encrypt")]
-        public async Task<IActionResult> Encrypt([FromForm] FileRequest request)
+        public async Task<IActionResult> Encrypt([FromForm] EncryptRequest request)
         {
             if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
@@ -30,9 +30,11 @@ namespace Cryptex.Controllers.api
                 await request.File.CopyToAsync(ms);
                 var data = ms.ToArray();
 
-                var cipher = _encService.Encrypt(data, request.Password, out var iv, out var salt, out var passwordHash);
+                var algorithm = request.Algorithm == "ChaCha20-Poly1305" ? EncryptionAlgorithm.ChaCha20Poly1305 : EncryptionAlgorithm.AesGcm;
 
-                var result = salt.Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
+                var cipher = _encService.Encrypt(data, request.Password, algorithm, out var iv, out var salt, out var passwordHash, out var algorithmByte);
+
+                var result = algorithmByte.Concat(salt).Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
                 
                 return File(result, "application/octet-stream", request.File.FileName + ".enc");
             }
@@ -43,7 +45,7 @@ namespace Cryptex.Controllers.api
         }
 
         [HttpPost("decrypt")]
-        public async Task<IActionResult> Decrypt([FromForm] FileRequest request)
+        public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
             if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
@@ -57,14 +59,17 @@ namespace Cryptex.Controllers.api
                 await request.File.CopyToAsync(ms);
                 var allBytes = ms.ToArray();
 
-                var salt = allBytes[..16];
-                var iv = allBytes[16..28];
-                var passwordHash = allBytes[^32..];
-                var cipherWithTag = allBytes[28..^32];
+                var algorithmByte = allBytes[0];
+                var algorithm = (EncryptionAlgorithm)algorithmByte;
 
-                var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash);
+                var salt = allBytes[1..17];
+                var iv = allBytes[17..29];
+                var passwordHash = allBytes[^32..];
+                var cipherWithTag = allBytes[29..^32];
+
+                var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash, algorithm);
                 var originalName = request.File.FileName.Replace(".enc", "");
-                
+
                 return File(plain, "application/octet-stream", originalName);
             }
             catch (InvalidPasswordException exception)
