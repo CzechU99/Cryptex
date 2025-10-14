@@ -11,7 +11,9 @@ namespace Cryptex.Controllers.api
     {
         private readonly EncryptionService _encService;
         private readonly RateLimitService _rateLimitService;
+        
         private const int MIN_PASSWORD_LENGTH = 8;
+
         public FileController(EncryptionService encService, RateLimitService rateLimitService)
         {
             _encService = encService;
@@ -21,35 +23,55 @@ namespace Cryptex.Controllers.api
         [HttpPost("encrypt")]
         public async Task<IActionResult> Encrypt([FromForm] EncryptRequest request)
         {
-
-            var fileToDecrypt = request.File;
-            var fileIdentifier = fileToDecrypt.FileName;
-            var passwordToDecrypt = request.Password;
-
-            var isPassword = !string.IsNullOrWhiteSpace(passwordToDecrypt);
-            if (!isPassword)
+            if (string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak hasła.");
 
-            var isFile = fileToDecrypt != null;
-            if (!isFile)
+            if (request.File == null)
                 return BadRequest("Brak pliku.");
 
-            if (passwordToDecrypt.Length < MIN_PASSWORD_LENGTH)
+            if (request.Password?.Length < MIN_PASSWORD_LENGTH)
                 return BadRequest("Hasło musi mieć co najmniej 8 znaków.");
 
             try
             {
                 using var memoryStream = new MemoryStream();
-                await fileToDecrypt.CopyToAsync(memoryStream);
+                await request.File.CopyToAsync(memoryStream);
                 var fileBytes = memoryStream.ToArray();
 
-                var algorithm = request.Algorithm == "ChaCha20-Poly1305" ? EncryptionAlgorithm.ChaCha20Poly1305 : EncryptionAlgorithm.AesGcm;
+                var algorithm = request.Algorithm == "ChaCha20-Poly1305" 
+                    ? EncryptionAlgorithm.ChaCha20Poly1305 
+                    : EncryptionAlgorithm.AesGcm;
 
-                var cipher = _encService.Encrypt(fileBytes, passwordToDecrypt, algorithm, out var iv, out var salt, out var passwordHash, out var algorithmByte);
+                byte[]? expirationBytes = null;
+                int expirationHours = 0;
 
-                var result = algorithmByte.Concat(salt).Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
-                
-                return File(result, "application/octet-stream", fileIdentifier + ".enc");
+                if (request.ExpireTime.HasValue)
+                {
+                    var expirationTime = request.ExpireTime.Value;
+                    expirationHours = (int)(expirationTime - DateTime.UtcNow).TotalHours;
+
+                    if (expirationHours <= 0)
+                        return BadRequest("Czas ważności musi być w przyszłości.");
+
+                    expirationBytes = BitConverter.GetBytes(expirationTime.Ticks);
+                }
+
+                var cipher = _encService.Encrypt(fileBytes, request.Password!, algorithm, expirationHours,
+                    out var iv, out var salt, out var passwordHash, out var algorithmByte, out var expirationBytesOut);
+
+                byte[] result;
+                if (expirationBytes != null)
+                {
+                    // Struktura: algorithm (1) | salt (16) | iv (12) | expiration (8) | cipher + tag | passwordHash (32)
+                    result = algorithmByte.Concat(salt).Concat(iv).Concat(expirationBytes).Concat(cipher).Concat(passwordHash).ToArray();
+                }
+                else
+                {
+                    // Struktura bez expiration: algorithm (1) | salt (16) | iv (12) | cipher + tag | passwordHash (32)
+                    result = algorithmByte.Concat(salt).Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
+                }
+
+                return File(result, "application/octet-stream", request.File.FileName + ".enc");
             }
             catch (Exception ex)
             {
@@ -60,34 +82,25 @@ namespace Cryptex.Controllers.api
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
-
-            var fileToDecrypt = request.File;
-            var fileIdentifier = fileToDecrypt.FileName;
-            var passwordToDecrypt = request.Password;
-
-            var isPassword = !string.IsNullOrWhiteSpace(passwordToDecrypt);
-            if (!isPassword)
+            if (string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak hasła.");
 
-            var isFile = fileToDecrypt != null;
-            if (!isFile)
+            if (request.File == null)
                 return BadRequest("Brak pliku.");
 
-            var fileExtension = Path.GetExtension(fileIdentifier);
-            if (fileExtension != ".enc")
+            if (Path.GetExtension(request.File.FileName) != ".enc")
                 return BadRequest("Nieprawidłowy format pliku. Oczekiwano pliku z rozszerzeniem .enc");
 
-
-            if (_rateLimitService.IsBlocked(fileIdentifier))
+            if (_rateLimitService.IsBlocked(request.File.FileName))
             {
-                var remaining = _rateLimitService.GetRemainingBlockTime(fileIdentifier);
+                var remaining = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
                 return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
             }
 
             try
             {
                 using var memoryStream = new MemoryStream();
-                await fileToDecrypt.CopyToAsync(memoryStream);
+                await request.File.CopyToAsync(memoryStream);
                 var fileBytes = memoryStream.ToArray();
 
                 var algorithmType = fileBytes[0];
@@ -96,24 +109,65 @@ namespace Cryptex.Controllers.api
                 var salt = fileBytes[1..17];
                 var iv = fileBytes[17..29];
                 var passwordHash = fileBytes[^32..];
-                var cipherWithTag = fileBytes[29..^32];
 
-                var plain = _encService.Decrypt(cipherWithTag, passwordToDecrypt, iv, salt, passwordHash, decodeAlgorithm);
+                byte[]? expirationBytes = null;
+                byte[] cipherWithTag;
 
-                _rateLimitService.ResetAttempts(fileIdentifier);
+                // Jeśli plik ma strukturę ze wznowieniem (długość > 37)
+                if (fileBytes.Length > 37)
+                {
+                    // Sprawdzamy czy to naprawdę expiration bytes czy cipher
+                    // Jeśli fileBytes[29..37] zawiera sensowne Ticks, to expiration bytes
+                    try
+                    {
+                        var potentialTicks = BitConverter.ToInt64(fileBytes, 29);
+                        var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
+                        
+                        // Jeśli data jest rozsądna (ostatnie 100 lat), to expiration bytes
+                        if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
+                        {
+                            expirationBytes = fileBytes[29..37];
+                            cipherWithTag = fileBytes[37..^32];
+                        }
+                        else
+                        {
+                            // To nie expiration, to cipher
+                            cipherWithTag = fileBytes[29..^32];
+                        }
+                    }
+                    catch
+                    {
+                        // Jeśli konwersja się nie powiodła, to nie expiration bytes
+                        cipherWithTag = fileBytes[29..^32];
+                    }
+                }
+                else
+                {
+                    // Plik bez expiration time
+                    cipherWithTag = fileBytes[29..^32];
+                }
 
-                var originalFileName = fileIdentifier.Replace(".enc", "");
+                var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash, decodeAlgorithm, expirationBytes);
+
+                _rateLimitService.ResetAttempts(request.File.FileName);
+
+                var originalFileName = request.File.FileName.Replace(".enc", "");
 
                 return File(plain, "application/octet-stream", originalFileName);
             }
+            catch (ExpiredFileException ex)
+            {
+                return BadRequest(ex.Message);
+            }
             catch (InvalidPasswordException)
             {
-                _rateLimitService.RecordFailedAttempt(fileIdentifier);
-                var decodeAttempts = _rateLimitService.GetAttemptCount(fileIdentifier);
+                _rateLimitService.RecordFailedAttempt(request.File.FileName);
+                var decodeAttempts = _rateLimitService.GetAttemptCount(request.File.FileName);
                 var decodeRemainAttempts = Math.Max(0, _rateLimitService._maxAttempts - decodeAttempts);
+                
                 if (decodeRemainAttempts == 0)
                 {
-                    var lockoutTime = _rateLimitService.GetRemainingBlockTime(fileIdentifier);
+                    var lockoutTime = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
                     return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");
                 }
                 
@@ -122,6 +176,10 @@ namespace Cryptex.Controllers.api
             catch (CorruptedFileException exception)
             {
                 return BadRequest(exception.Message);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Błąd podczas deszyfrowania: {ex.Message}");
             }
         }
     }

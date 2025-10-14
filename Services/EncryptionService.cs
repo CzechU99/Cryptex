@@ -17,13 +17,23 @@ namespace Cryptex.Services
         private const int SALT_SIZE = 16;
         private const int IV_SIZE = 12;
 
-        public byte[] Encrypt(byte[] data, string password, EncryptionAlgorithm algorithm, 
-            out byte[] iv, out byte[] salt, out byte[] passwordHash, out byte[] algorithmByte)
+        public byte[] Encrypt(byte[] data, string password, EncryptionAlgorithm algorithm, int expirationHours,
+            out byte[] iv, out byte[] salt, out byte[] passwordHash, out byte[] algorithmByte, out byte[]? expirationBytes)
         {
             salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
             iv = RandomNumberGenerator.GetBytes(IV_SIZE);
             passwordHash = ComputePasswordHash(password, salt);
             algorithmByte = new[] { (byte)algorithm };
+            
+            if (expirationHours > 0)
+            {
+                var expirationTime = DateTime.UtcNow.AddHours(expirationHours);
+                expirationBytes = BitConverter.GetBytes(expirationTime.Ticks);
+            }
+            else
+            {
+                expirationBytes = null;
+            }
 
             var key = DeriveKey(password, salt);
 
@@ -35,10 +45,23 @@ namespace Cryptex.Services
             };
         }
 
-        public byte[] Decrypt(byte[] encryptedData, string password, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithm)
+        public byte[] Decrypt(byte[] encryptedData, string password, byte[] iv, byte[] salt,
+            byte[] passwordHash, EncryptionAlgorithm algorithm, byte[]? expireBytes)
         {
 
             CheckPassword(password, salt, passwordHash);
+
+            if (expireBytes != null && expireBytes.Length == 8)
+            {
+                var expireTimeTicks = BitConverter.ToInt64(expireBytes);
+                var expireTime = new DateTime(expireTimeTicks, DateTimeKind.Utc);
+                
+                if (DateTime.UtcNow > expireTime)
+                {
+                    throw new ExpiredFileException("Plik wygasł i nie może być odszyfrowany.");
+                }
+            }
+
             var (cipher, tag, plain) = SplitEncryptedData(encryptedData);
             var key = DeriveKey(password, salt);
 
