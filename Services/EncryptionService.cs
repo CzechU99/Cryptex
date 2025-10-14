@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Cryptex.Exceptions;
+using Cryptex.Models;
 
 namespace Cryptex.Services
 {
@@ -17,27 +18,23 @@ namespace Cryptex.Services
         private const int SALT_SIZE = 16;
         private const int IV_SIZE = 12;
 
-        public byte[] Encrypt(byte[] data, string password, EncryptionAlgorithm algorithm, int expirationSeconds,
-            out byte[] iv, out byte[] salt, out byte[] passwordHash, out byte[] algorithmByte, out byte[]? expirationBytes)
+        public byte[] Encrypt(byte[] data, string password, string algorithm, out byte[] iv, out byte[] salt,
+            out byte[] passwordHash, out byte[] algorithmByte, int expirationSeconds = 0)
         {
             salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
             iv = RandomNumberGenerator.GetBytes(IV_SIZE);
             passwordHash = ComputePasswordHash(password, salt);
-            algorithmByte = new[] { (byte)algorithm };
             
-            if (expirationSeconds > 0)
-            {
-                var expirationTime = DateTime.UtcNow.AddHours(expirationSeconds);
-                expirationBytes = BitConverter.GetBytes(expirationTime.Ticks);
-            }
-            else
-            {
-                expirationBytes = null;
-            }
+            var encAlgorithm = algorithm == "ChaCha20-Poly1305"
+                ? EncryptionAlgorithm.ChaCha20Poly1305
+                : EncryptionAlgorithm.AesGcm;
+            
+            
+            algorithmByte = new[] { (byte)encAlgorithm };
 
             var key = DeriveKey(password, salt);
 
-            return algorithm switch
+            return encAlgorithm switch
             {
                 EncryptionAlgorithm.AesGcm => EncryptAesGcm(data, key, iv),
                 EncryptionAlgorithm.ChaCha20Poly1305 => EncryptChaCha20Poly1305(data, key, iv),

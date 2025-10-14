@@ -11,69 +11,52 @@ namespace Cryptex.Controllers.api
     {
         private readonly EncryptionService _encService;
         private readonly RateLimitService _rateLimitService;
+        private readonly ValidationService _validationService;
+        private readonly FileService _fileService;
+        private readonly ExpireTimeService _expireTimeService;
         
-        private const int MIN_PASSWORD_LENGTH = 8;
-
-        public FileController(EncryptionService encService, RateLimitService rateLimitService)
+        public FileController(
+            EncryptionService encService,
+            RateLimitService rateLimitService,
+            ValidationService validationService,
+            FileService fileService,
+            ExpireTimeService expireTimeService)
         {
             _encService = encService;
             _rateLimitService = rateLimitService;
+            _validationService = validationService;
+            _fileService = fileService;
+            _expireTimeService = expireTimeService;
         }
 
         [HttpPost("encrypt")]
         public async Task<IActionResult> Encrypt([FromForm] EncryptRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Password))
-                return BadRequest("Brak hasła.");
-
-            if (request.File == null)
-                return BadRequest("Brak pliku.");
-
-            if (request.Password?.Length < MIN_PASSWORD_LENGTH)
-                return BadRequest("Hasło musi mieć co najmniej 8 znaków.");
-
             try
             {
-                using var memoryStream = new MemoryStream();
-                await request.File.CopyToAsync(memoryStream);
-                var fileBytes = memoryStream.ToArray();
+                _validationService.ValidateEncrypt(request);
 
-                var algorithm = request.Algorithm == "ChaCha20-Poly1305" 
-                    ? EncryptionAlgorithm.ChaCha20Poly1305 
-                    : EncryptionAlgorithm.AesGcm;
+                var fileBytes = await _fileService.FileToBytes(request);
+                var expirationData = _expireTimeService.GetExpirationData(request.ExpireTime);
 
-                byte[]? expirationBytes = null;
-                int expirationHours = 0;
+                var cipher = _encService.Encrypt(
+                    fileBytes,
+                    request.Password!,
+                    request.Algorithm,
+                    out var iv,
+                    out var salt,
+                    out var passwordHash,
+                    out var algorithmByte,
+                    expirationData.Seconds
+                );
 
-                if (request.ExpireTime.HasValue)
-                {
-                    var expirationTime = request.ExpireTime.Value;
-                    var expirationSpan = expirationTime - DateTime.UtcNow;
+                var result = _fileService.CombineEncryptedData(algorithmByte, salt, iv, cipher, passwordHash, expirationData.Bytes);
 
-                    if (expirationSpan.TotalSeconds <= 0)
-                        return BadRequest("Czas ważności musi być w przyszłości.");
-
-                    expirationBytes = BitConverter.GetBytes(expirationTime.ToUniversalTime().Ticks);
-
-                    expirationHours = (int)expirationSpan.TotalSeconds;
-                }
-
-                var cipher = _encService.Encrypt(fileBytes, request.Password!, algorithm, expirationHours,
-                    out var iv, out var salt, out var passwordHash, out var algorithmByte, out var expirationBytesOut);
-
-                byte[] result;
-                if (expirationBytes != null)
-                {
-                    // Struktura: algorithm (1) | salt (16) | iv (12) | expiration (8) | cipher + tag | passwordHash (32)
-                    result = algorithmByte.Concat(salt).Concat(iv).Concat(expirationBytes).Concat(cipher).Concat(passwordHash).ToArray();
-                }
-                else
-                {
-                    // Struktura bez expiration: algorithm (1) | salt (16) | iv (12) | cipher + tag | passwordHash (32)
-                    result = algorithmByte.Concat(salt).Concat(iv).Concat(cipher).Concat(passwordHash).ToArray();
-                }
-
-                return File(result, "application/octet-stream", request.File.FileName + ".enc");
+                return File(result, "application/octet-stream", $"{request.File!.FileName}.enc");
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -84,26 +67,18 @@ namespace Cryptex.Controllers.api
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Password))
-                return BadRequest("Brak hasła.");
-
-            if (request.File == null)
-                return BadRequest("Brak pliku.");
-
-            if (Path.GetExtension(request.File.FileName) != ".enc")
-                return BadRequest("Nieprawidłowy format pliku. Oczekiwano pliku z rozszerzeniem .enc");
-
-            if (_rateLimitService.IsBlocked(request.File.FileName))
-            {
-                var remaining = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
-                return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
-            }
+            _validationService.ValidateDecrypt(request);
 
             try
             {
-                using var memoryStream = new MemoryStream();
-                await request.File.CopyToAsync(memoryStream);
-                var fileBytes = memoryStream.ToArray();
+
+                if (_rateLimitService.IsBlocked(request.File!.FileName))
+                {
+                    var remaining = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
+                    return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
+                }
+
+                var fileBytes = await _fileService.FileToBytes(request);
 
                 var algorithmType = fileBytes[0];
                 var decodeAlgorithm = (EncryptionAlgorithm)algorithmType;
