@@ -115,17 +115,13 @@ namespace Cryptex.Controllers.api
                 byte[]? expirationBytes = null;
                 byte[] cipherWithTag;
 
-                // Jeśli plik ma strukturę ze wznowieniem (długość > 37)
                 if (fileBytes.Length > 37)
                 {
-                    // Sprawdzamy czy to naprawdę expiration bytes czy cipher
-                    // Jeśli fileBytes[29..37] zawiera sensowne Ticks, to expiration bytes
                     try
                     {
                         var potentialTicks = BitConverter.ToInt64(fileBytes, 29);
                         var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
                         
-                        // Jeśli data jest rozsądna (ostatnie 100 lat), to expiration bytes
                         if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
                         {
                             expirationBytes = fileBytes[29..37];
@@ -133,19 +129,16 @@ namespace Cryptex.Controllers.api
                         }
                         else
                         {
-                            // To nie expiration, to cipher
                             cipherWithTag = fileBytes[29..^32];
                         }
                     }
                     catch
                     {
-                        // Jeśli konwersja się nie powiodła, to nie expiration bytes
                         cipherWithTag = fileBytes[29..^32];
                     }
                 }
                 else
                 {
-                    // Plik bez expiration time
                     cipherWithTag = fileBytes[29..^32];
                 }
 
