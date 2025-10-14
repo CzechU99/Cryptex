@@ -1,6 +1,7 @@
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<Cryptex.Services.EncryptionService>();
+builder.Services.AddSingleton<Cryptex.Services.RateLimitService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

@@ -10,10 +10,12 @@ namespace Cryptex.Controllers.api
     public class FileController : ControllerBase
     {
         private readonly EncryptionService _encService;
+        private readonly RateLimitService _rateLimitService;
         private const int MIN_PASSWORD_LENGTH = 8;
-        public FileController(EncryptionService encService)
+        public FileController(EncryptionService encService, RateLimitService rateLimitService)
         {
             _encService = encService;
+            _rateLimitService = rateLimitService;
         }
 
         [HttpPost("encrypt")]
@@ -48,11 +50,21 @@ namespace Cryptex.Controllers.api
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
+
+            var identifier = request.File.FileName;
+
             if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
 
-            if (Path.GetExtension(request.File.FileName) != ".enc")
+            if (Path.GetExtension(identifier) != ".enc")
                 return BadRequest("Nieprawidłowy format pliku. Oczekiwano pliku z rozszerzeniem .enc");
+
+
+            if (_rateLimitService.IsBlocked(identifier))
+            {
+                var remaining = _rateLimitService.GetRemainingBlockTime(identifier);
+                return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
+            }
 
             try
             {
@@ -69,13 +81,25 @@ namespace Cryptex.Controllers.api
                 var cipherWithTag = allBytes[29..^32];
 
                 var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash, algorithm);
-                var originalName = request.File.FileName.Replace(".enc", "");
+
+                _rateLimitService.ResetAttempts(identifier);
+
+                var originalName = identifier.Replace(".enc", "");
 
                 return File(plain, "application/octet-stream", originalName);
             }
-            catch (InvalidPasswordException exception)
+            catch (InvalidPasswordException)
             {
-                return BadRequest(exception.Message);
+                _rateLimitService.RecordFailedAttempt(identifier);
+                var attempts = _rateLimitService.GetAttemptCount(identifier);
+                var remaining = Math.Max(0, _rateLimitService._maxAttempts - attempts);
+                if (remaining == 0)
+                {
+                    var lockoutTime = _rateLimitService.GetRemainingBlockTime(identifier);
+                    return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");
+                }
+                
+                return BadRequest($"Błędne hasło. Pozostało prób: {_rateLimitService._maxAttempts - attempts}");
             }
             catch (CorruptedFileException exception)
             {
