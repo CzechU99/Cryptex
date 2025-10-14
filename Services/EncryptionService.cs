@@ -17,7 +17,7 @@ namespace Cryptex.Services
         private const int SALT_SIZE = 16;
         private const int IV_SIZE = 12;
 
-        public byte[] Encrypt(byte[] data, string password, EncryptionAlgorithm algorithm, int expirationHours,
+        public byte[] Encrypt(byte[] data, string password, EncryptionAlgorithm algorithm, int expirationSeconds,
             out byte[] iv, out byte[] salt, out byte[] passwordHash, out byte[] algorithmByte, out byte[]? expirationBytes)
         {
             salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
@@ -25,9 +25,9 @@ namespace Cryptex.Services
             passwordHash = ComputePasswordHash(password, salt);
             algorithmByte = new[] { (byte)algorithm };
             
-            if (expirationHours > 0)
+            if (expirationSeconds > 0)
             {
-                var expirationTime = DateTime.UtcNow.AddHours(expirationHours);
+                var expirationTime = DateTime.UtcNow.AddHours(expirationSeconds);
                 expirationBytes = BitConverter.GetBytes(expirationTime.Ticks);
             }
             else

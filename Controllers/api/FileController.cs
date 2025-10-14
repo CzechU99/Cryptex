@@ -48,12 +48,14 @@ namespace Cryptex.Controllers.api
                 if (request.ExpireTime.HasValue)
                 {
                     var expirationTime = request.ExpireTime.Value;
-                    expirationHours = (int)(expirationTime - DateTime.UtcNow).TotalHours;
+                    var expirationSpan = expirationTime - DateTime.UtcNow;
 
-                    if (expirationHours <= 0)
+                    if (expirationSpan.TotalSeconds <= 0)
                         return BadRequest("Czas ważności musi być w przyszłości.");
 
-                    expirationBytes = BitConverter.GetBytes(expirationTime.Ticks);
+                    expirationBytes = BitConverter.GetBytes(expirationTime.ToUniversalTime().Ticks);
+
+                    expirationHours = (int)expirationSpan.TotalSeconds;
                 }
 
                 var cipher = _encService.Encrypt(fileBytes, request.Password!, algorithm, expirationHours,
