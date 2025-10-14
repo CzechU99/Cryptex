@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Cryptex")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+057fd6828ffce0602434f9a89bb4dc138cb13601")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9dfbaf7e7ab3692e10a71e3d6a89f72403652c75")]
 [assembly: System.Reflection.AssemblyProductAttribute("Cryptex")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Cryptex")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
