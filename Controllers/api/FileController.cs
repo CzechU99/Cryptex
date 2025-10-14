@@ -10,6 +10,7 @@ namespace Cryptex.Controllers.api
     public class FileController : ControllerBase
     {
         private readonly EncryptionService _encService;
+        private const int MIN_PASSWORD_LENGTH = 8;
         public FileController(EncryptionService encService)
         {
             _encService = encService;
@@ -21,7 +22,7 @@ namespace Cryptex.Controllers.api
             if (request.File == null || string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("Brak pliku lub hasła.");
 
-            if (request.Password.Length < 8)
+            if (request.Password.Length < MIN_PASSWORD_LENGTH)
                 return BadRequest("Hasło musi mieć co najmniej 8 znaków.");
 
             try
