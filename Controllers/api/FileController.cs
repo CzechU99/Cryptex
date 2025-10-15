@@ -38,18 +38,8 @@ namespace Cryptex.Controllers.api
 
                 var fileBytes = await _fileService.FileToBytes(request);
                 var expirationData = _expireTimeService.GetExpirationData(request.ExpireTime);
-
-                var cipher = _encService.Encrypt(
-                    fileBytes,
-                    request.Password!,
-                    request.Algorithm,
-                    out var iv,
-                    out var salt,
-                    out var passwordHash,
-                    out var algorithmByte
-                );
-
-                var result = _fileService.CombineEncryptedData(algorithmByte, salt, iv, cipher, passwordHash, expirationData.Bytes);
+                var encyptedFile = _encService.Encrypt(fileBytes, request.Password!, request.Algorithm);
+                var result = _fileService.CombineEncryptedData(encyptedFile, expirationData.Bytes);
 
                 return File(result, "application/octet-stream", $"{request.File!.FileName}.enc");
             }
@@ -74,19 +64,8 @@ namespace Cryptex.Controllers.api
 
                 var fileBytes = await _fileService.FileToBytes(request);
 
-                _fileService.ExtractDetailsFromFile(fileBytes, out var algorithmType, out var salt, out var iv, out var passwordHash);
 
-                _fileService.ExtractCipherWithTagFromFile(fileBytes, out var cipherWithTag, out var expirationBytes);
-
-                var plain = _encService.Decrypt(
-                    cipherWithTag,
-                    request.Password!,
-                    iv,
-                    salt,
-                    passwordHash,
-                    algorithmType,
-                    expirationBytes
-                );
+                var plain = _encService.Decrypt(fileBytes,request.Password!);
 
                 _rateLimitService.ResetAttempts(request.File!.FileName);
 

@@ -6,6 +6,12 @@ namespace Cryptex.Services
   public class FileService
   {
 
+    private const int HASH_SIZE = 32;
+    private const int ITERATION_COUNT = 100_000;
+    private const int TAG_SIZE = 16;
+    private const int SALT_SIZE = 16;
+    private const int IV_SIZE = 12;
+
     public async Task<byte[]> FileToBytes(EncryptRequest request)
     {
       using var memoryStream = new MemoryStream();
@@ -24,32 +30,31 @@ namespace Cryptex.Services
       return fileBytes;
     }
 
-    public byte[] CombineEncryptedData(
-      byte[] algorithm, byte[] salt, byte[] iv, byte[] cipher, byte[] passwordHash, byte[]? expirationBytes = null)
+    public byte[] CombineEncryptedData(byte[] encryptedFile, byte[]? expirationBytes = null)
     {
-      var parts = new List<byte[]> { algorithm, salt, iv };
 
       if (expirationBytes != null)
-        parts.Add(expirationBytes);
+        return encryptedFile.Take(29).Concat(expirationBytes).Concat(encryptedFile.Skip(29)).ToArray();
 
-      parts.Add(cipher);
-      parts.Add(passwordHash);
-
-      return parts.SelectMany(x => x).ToArray();
+      return encryptedFile;
     }
 
-    public void ExtractDetailsFromFile(byte[] fileBytes, out byte algorithmType, out byte[] salt, out byte[] iv, out byte[] passwordHash)
+    public (byte, byte[], byte[], byte[]) ExtractDetailsFromFile(byte[] fileBytes)
     {
 
-      algorithmType = fileBytes[0];
-      salt = fileBytes[1..17];
-      iv = fileBytes[17..29];
-      passwordHash = fileBytes[^32..];
+      var algorithmType = fileBytes[0];
+      var salt = fileBytes[1..(SALT_SIZE + 1)];
+      var iv = fileBytes[(SALT_SIZE + 1)..(IV_SIZE + 1)];
+      var passwordHash = fileBytes[^HASH_SIZE..];
 
+      return (algorithmType, salt, iv, passwordHash);
     }
 
-    public void ExtractCipherWithTagFromFile(byte[] fileBytes, out byte[] cipherWithTag, out byte[]? expirationBytes)
+    public (byte[] cipherWithTag, byte[]? expirationBytes) ExtractCipherTagAndDate(byte[] fileBytes)
     {
+      byte[] cipherWithTag;
+      byte[]? expirationBytes = null;
+
       if (fileBytes.Length > 37)
       {
         try
@@ -65,20 +70,19 @@ namespace Cryptex.Services
           else
           {
             cipherWithTag = fileBytes[29..^32];
-            expirationBytes = null;
           }
         }
         catch
         {
           cipherWithTag = fileBytes[29..^32];
-          expirationBytes = null;
         }
       }
       else
       {
         cipherWithTag = fileBytes[29..^32];
-        expirationBytes = null;
       }
+
+      return (cipherWithTag, expirationBytes);
     }
     
     public string GetOriginalFileName(DecryptRequest request)

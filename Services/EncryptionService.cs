@@ -18,51 +18,54 @@ namespace Cryptex.Services
         private const int SALT_SIZE = 16;
         private const int IV_SIZE = 12;
 
-        public byte[] Encrypt(byte[] data, string password, string algorithm, out byte[] iv, out byte[] salt,
-            out byte[] passwordHash, out byte[] algorithmByte)
+        private readonly FileService _fileService;
+
+         public EncryptionService(FileService fileService)
         {
-            salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
-            iv = RandomNumberGenerator.GetBytes(IV_SIZE);
-            passwordHash = ComputePasswordHash(password, salt);
-            
-            var encAlgorithm = algorithm == "ChaCha20-Poly1305"
-                ? EncryptionAlgorithm.ChaCha20Poly1305
-                : EncryptionAlgorithm.AesGcm;
-            
-            
-            algorithmByte = new[] { (byte)encAlgorithm };
-
-            var key = DeriveKey(password, salt);
-
-            return encAlgorithm switch
-            {
-                EncryptionAlgorithm.AesGcm => EncryptAesGcm(data, key, iv),
-                EncryptionAlgorithm.ChaCha20Poly1305 => EncryptChaCha20Poly1305(data, key, iv),
-                _ => throw new ArgumentException("Nieznany algorytm szyfrowania")
-            };
+            _fileService = fileService;
         }
 
-        public byte[] Decrypt(byte[] encryptedData, string password, byte[] iv, byte[] salt,
-            byte[] passwordHash, byte algorithm, byte[]? expireBytes)
+        public byte[] Encrypt(byte[] data, string password, string algorithm)
+        {
+            
+            var (salt, iv, passwordHash, encAlgorithm) = InitializeEncryptionParameters(password, algorithm);
+            var key = DeriveKey(password, salt);
+
+            switch (encAlgorithm)
+            {
+                case EncryptionAlgorithm.AesGcm:
+                    return EncryptAesGcm(data, key, iv, salt, passwordHash, encAlgorithm);
+                case EncryptionAlgorithm.ChaCha20Poly1305:
+                    return EncryptChaCha20Poly1305(data, key, iv, salt, passwordHash, encAlgorithm);
+                default:
+                    throw new ArgumentException("Nieznany algorytm szyfrowania");
+            }
+
+        }
+
+        public byte[] Decrypt(byte[] fileBytes, string password)
         {
 
+            var (algorithmType, salt, iv, passwordHash) = _fileService.ExtractDetailsFromFile(fileBytes);
+            var (cipherWithTag, expirationBytes) = _fileService.ExtractCipherTagAndDate(fileBytes);
+            
             CheckPassword(password, salt, passwordHash);
 
-            var decodeAlgorithm = (EncryptionAlgorithm)algorithm;
+            var decodeAlgorithm = (EncryptionAlgorithm)algorithmType;
 
 
-            if (expireBytes != null && expireBytes.Length == 8)
+            if (expirationBytes != null && expirationBytes.Length == 8)
             {
-                var expireTimeTicks = BitConverter.ToInt64(expireBytes);
+                var expireTimeTicks = BitConverter.ToInt64(expirationBytes);
                 var expireTime = new DateTime(expireTimeTicks, DateTimeKind.Utc);
-                
+
                 if (DateTime.UtcNow > expireTime)
                 {
                     throw new ExpiredFileException("Plik wygasł i nie może być odszyfrowany.");
                 }
             }
 
-            var (cipher, tag, plain) = SplitEncryptedData(encryptedData);
+            var (cipher, tag, plain) = SplitEncryptedData(fileBytes);
             var key = DeriveKey(password, salt);
 
             try
@@ -103,25 +106,28 @@ namespace Cryptex.Services
             using var kdf = new Rfc2898DeriveBytes(password, salt, ITERATION_COUNT, HashAlgorithmName.SHA256);
             return kdf.GetBytes(HASH_SIZE);
         }
-
-        private static byte[] EncryptAesGcm(byte[] data, byte[] key, byte[] iv)
+        private static byte[] EncryptAesGcm(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
         {
             using var aes = new AesGcm(key, TAG_SIZE);
             var cipher = new byte[data.Length];
             var tag = new byte[TAG_SIZE];
             aes.Encrypt(iv, data, cipher, tag);
 
-            return cipher.Concat(tag).ToArray();
+            var algorithmByteArray = new[] { (byte)algorithmByte };
+
+            return algorithmByteArray.Concat(salt).Concat(iv).Concat(cipher).Concat(tag).Concat(passwordHash).ToArray();
         }
 
-        private static byte[] EncryptChaCha20Poly1305(byte[] data, byte[] key, byte[] iv)
+        private static byte[] EncryptChaCha20Poly1305(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
         {
             using var chacha = new ChaCha20Poly1305(key);
             var cipher = new byte[data.Length];
             var tag = new byte[TAG_SIZE];
             chacha.Encrypt(iv, data, cipher, tag);
 
-            return cipher.Concat(tag).ToArray();
+            var algorithmByteArray = new[] { (byte)algorithmByte };
+
+            return algorithmByteArray.Concat(salt).Concat(iv).Concat(cipher).Concat(tag).Concat(passwordHash).ToArray();
         }
 
         private static void CheckPassword(string password, byte[] salt, byte[] passwordHash)
@@ -132,7 +138,7 @@ namespace Cryptex.Services
                 throw new InvalidPasswordException("Błędne hasło.");
             }
         }
-        
+
         private static (byte[] cipher, byte[] tag, byte[] plain) SplitEncryptedData(byte[] encryptedData)
         {
             var cipher = encryptedData[..^16];
@@ -141,5 +147,22 @@ namespace Cryptex.Services
 
             return (cipher, tag, plain);
         }
+
+        private (byte[] salt, byte[] iv, byte[] passwordHash, EncryptionAlgorithm algorithmByte) InitializeEncryptionParameters(
+            string password, string algorithm)
+        {
+            var salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
+            var iv = RandomNumberGenerator.GetBytes(IV_SIZE);
+            var passwordHash = ComputePasswordHash(password, salt);
+            
+            var encAlgorithm = algorithm == "ChaCha20-Poly1305"
+                ? EncryptionAlgorithm.ChaCha20Poly1305
+                : EncryptionAlgorithm.AesGcm;
+
+            var algorithmByte = (EncryptionAlgorithm)encAlgorithm;
+            
+            return (salt, iv, passwordHash, algorithmByte);
+        }
+        
     }
 }
