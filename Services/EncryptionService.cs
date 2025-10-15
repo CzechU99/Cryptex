@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Cryptex.Exceptions;
-using Cryptex.Models;
+using Cryptex.Config;
+using Microsoft.Extensions.Options;
 
 namespace Cryptex.Services
 {
@@ -12,17 +13,13 @@ namespace Cryptex.Services
 
     public class EncryptionService
     {
-        private const int HASH_SIZE = 32;
-        private const int ITERATION_COUNT = 100_000;
-        private const int TAG_SIZE = 16;
-        private const int SALT_SIZE = 16;
-        private const int IV_SIZE = 12;
-
         private readonly FileService _fileService;
+        private readonly AppSettings _settings;
 
-         public EncryptionService(FileService fileService)
+        public EncryptionService(FileService fileService, IOptions<AppSettings> settings)
         {
             _fileService = fileService;
+            _settings = settings.Value;
         }
 
         public byte[] Encrypt(byte[] data, string password, string algorithm)
@@ -68,22 +65,24 @@ namespace Cryptex.Services
             return plain;
         }
 
-        private static byte[] ComputePasswordHash(string password, byte[] salt)
+        private byte[] ComputePasswordHash(string password, byte[] salt)
         {
-            using var kdf = new Rfc2898DeriveBytes(password, salt, ITERATION_COUNT, HashAlgorithmName.SHA256);
-            return kdf.GetBytes(HASH_SIZE);
+            byte[] passwordBytes = System.Text.Encoding.UTF8.GetBytes(password);
+            using var kdf = new Rfc2898DeriveBytes(passwordBytes, salt, _settings.ITERATION_COUNT, HashAlgorithmName.SHA256);
+            return kdf.GetBytes(_settings.HASH_SIZE);
         }
 
-        private static byte[] DeriveKey(string password, byte[] salt)
+        private byte[] DeriveKey(string password, byte[] salt)
         {
-            using var kdf = new Rfc2898DeriveBytes(password, salt, ITERATION_COUNT, HashAlgorithmName.SHA256);
-            return kdf.GetBytes(HASH_SIZE);
+            byte[] passwordBytes = System.Text.Encoding.UTF8.GetBytes(password);
+            using var kdf = new Rfc2898DeriveBytes(passwordBytes, salt, _settings.ITERATION_COUNT, HashAlgorithmName.SHA256);
+            return kdf.GetBytes(_settings.HASH_SIZE);
         }
-        private static byte[] EncryptAesGcm(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
+        private byte[] EncryptAesGcm(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
         {
-            using var aes = new AesGcm(key, TAG_SIZE);
+            using var aes = new AesGcm(key, _settings.TAG_SIZE);
             var cipher = new byte[data.Length];
-            var tag = new byte[TAG_SIZE];
+            var tag = new byte[_settings.TAG_SIZE];
             aes.Encrypt(iv, data, cipher, tag);
 
             var algorithmByteArray = new[] { (byte)algorithmByte };
@@ -91,11 +90,11 @@ namespace Cryptex.Services
             return algorithmByteArray.Concat(salt).Concat(iv).Concat(cipher).Concat(tag).Concat(passwordHash).ToArray();
         }
 
-        private static byte[] EncryptChaCha20Poly1305(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
+        private byte[] EncryptChaCha20Poly1305(byte[] data, byte[] key, byte[] iv, byte[] salt, byte[] passwordHash, EncryptionAlgorithm algorithmByte)
         {
             using var chacha = new ChaCha20Poly1305(key);
             var cipher = new byte[data.Length];
-            var tag = new byte[TAG_SIZE];
+            var tag = new byte[_settings.TAG_SIZE];
             chacha.Encrypt(iv, data, cipher, tag);
 
             var algorithmByteArray = new[] { (byte)algorithmByte };
@@ -103,7 +102,7 @@ namespace Cryptex.Services
             return algorithmByteArray.Concat(salt).Concat(iv).Concat(cipher).Concat(tag).Concat(passwordHash).ToArray();
         }
 
-        private static void CheckPassword(string password, byte[] salt, byte[] passwordHash)
+        private void CheckPassword(string password, byte[] salt, byte[] passwordHash)
         {
             var computedHash = ComputePasswordHash(password, salt);
             if (!computedHash.SequenceEqual(passwordHash))
@@ -124,8 +123,8 @@ namespace Cryptex.Services
         private (byte[] salt, byte[] iv, byte[] passwordHash, EncryptionAlgorithm algorithmByte) InitializeEncryptionParameters(
             string password, string algorithm)
         {
-            var salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
-            var iv = RandomNumberGenerator.GetBytes(IV_SIZE);
+            var salt = RandomNumberGenerator.GetBytes(_settings.SALT_SIZE);
+            var iv = RandomNumberGenerator.GetBytes(_settings.IV_SIZE);
             var passwordHash = ComputePasswordHash(password, salt);
 
             if(algorithm != "AES-GCM" && algorithm != "ChaCha20-Poly1305")
@@ -135,7 +134,7 @@ namespace Cryptex.Services
                 ? EncryptionAlgorithm.ChaCha20Poly1305
                 : EncryptionAlgorithm.AesGcm;
 
-            var algorithmByte = (EncryptionAlgorithm)encAlgorithm;
+            var algorithmByte = encAlgorithm;
 
             return (salt, iv, passwordHash, algorithmByte);
         }
@@ -147,7 +146,7 @@ namespace Cryptex.Services
             switch (decodeAlgorithm)
             {
                 case EncryptionAlgorithm.AesGcm:
-                    var aes = new AesGcm(key, TAG_SIZE);
+                    var aes = new AesGcm(key, _settings.TAG_SIZE);
                     aes.Decrypt(iv, cipher, tag, plain);
                     break;
 

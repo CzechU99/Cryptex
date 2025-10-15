@@ -1,14 +1,19 @@
 using Cryptex.Exceptions;
 using Cryptex.Models;
+using Cryptex.Config;
+using Microsoft.Extensions.Options;
 
 namespace Cryptex.Services
 {
   public class FileService
   {
 
-    private const int HASH_SIZE = 32;
-    private const int SALT_SIZE = 16;
-    private const int IV_SIZE = 12;
+    private readonly AppSettings _settings;
+
+    public FileService(IOptions<AppSettings> settings)
+    {
+      _settings = settings.Value;
+    }
 
     public async Task<byte[]> FileToBytes(EncryptRequest request)
     {
@@ -30,20 +35,17 @@ namespace Cryptex.Services
 
     public byte[] CombineEncryptedData(byte[] encryptedFile, byte[]? expirationBytes = null)
     {
-
       if (expirationBytes != null)
         return encryptedFile.Take(29).Concat(expirationBytes).Concat(encryptedFile.Skip(29)).ToArray();
-
       return encryptedFile;
     }
 
     public (byte, byte[], byte[], byte[]) ExtractDetailsFromFile(byte[] fileBytes)
     {
-
       var algorithmType = fileBytes[0];
-      var salt = fileBytes[1..(SALT_SIZE + 1)];
-      var iv = fileBytes[(SALT_SIZE + 1)..(IV_SIZE + 1 + SALT_SIZE)];
-      var passwordHash = fileBytes[^HASH_SIZE..];
+      var salt = fileBytes[1..(_settings.SALT_SIZE + 1)];
+      var iv = fileBytes[(_settings.SALT_SIZE + 1)..(_settings.IV_SIZE + 1 + _settings.SALT_SIZE)];
+      var passwordHash = fileBytes[^_settings.HASH_SIZE..];
 
       return (algorithmType, salt, iv, passwordHash);
     }
@@ -57,27 +59,27 @@ namespace Cryptex.Services
       {
         try
         {
-          var potentialTicks = BitConverter.ToInt64(fileBytes, 1 + IV_SIZE + SALT_SIZE);
+          var potentialTicks = BitConverter.ToInt64(fileBytes, 1 + _settings.IV_SIZE + _settings.SALT_SIZE);
           var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
 
           if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
           {
-            expirationBytes = fileBytes[(1 + IV_SIZE + SALT_SIZE)..(1 + IV_SIZE + SALT_SIZE + 8)];
-            cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE + 8)..^HASH_SIZE];
+            expirationBytes = fileBytes[(1 + _settings.IV_SIZE + _settings.SALT_SIZE)..(1 + _settings.IV_SIZE + _settings.SALT_SIZE + 8)];
+            cipherWithTag = fileBytes[(1 + _settings.IV_SIZE + _settings.SALT_SIZE + 8)..^_settings.HASH_SIZE];
           }
           else
           {
-            cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
+            cipherWithTag = fileBytes[(1 + _settings.IV_SIZE + _settings.SALT_SIZE)..^_settings.HASH_SIZE];
           }
         }
         catch
         {
-          cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
+          cipherWithTag = fileBytes[(1 + _settings.IV_SIZE + _settings.SALT_SIZE)..^_settings.HASH_SIZE];
         }
       }
       else
       {
-        cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
+        cipherWithTag = fileBytes[(1 + _settings.IV_SIZE + _settings.SALT_SIZE)..^_settings.HASH_SIZE];
       }
 
       return (cipherWithTag, expirationBytes);
@@ -95,7 +97,7 @@ namespace Cryptex.Services
     
     public void CheckFileExpiration(byte[]? expirationBytes)
     {
-      if (expirationBytes != null && expirationBytes.Length == 8)
+      if (expirationBytes != null && expirationBytes.Length == _settings.MIN_PASSWORD_LENGTH)
       {
         var expireTimeTicks = BitConverter.ToInt64(expirationBytes);
         var expireTime = new DateTime(expireTimeTicks, DateTimeKind.Utc);

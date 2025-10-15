@@ -1,5 +1,8 @@
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.Configure<Cryptex.Config.AppSettings>(
+    builder.Configuration.GetSection("AppSettings"));
+
 builder.Services.AddScoped<Cryptex.Services.EncryptionService>();
 builder.Services.AddSingleton<Cryptex.Services.RateLimitService>();
 builder.Services.AddSingleton<Cryptex.Services.ValidationService>();

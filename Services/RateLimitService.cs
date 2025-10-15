@@ -1,10 +1,14 @@
 using System.Collections.Concurrent;
 using Cryptex.Models;
+using Cryptex.Exceptions;
+using Cryptex.Config;
+using Microsoft.Extensions.Options;
 
 namespace Cryptex.Services
 {
   public class RateLimitService
   {
+
     private class AttemptRecord
     {
       public int FailedAttempts { get; set; }
@@ -16,14 +20,14 @@ namespace Cryptex.Services
     private readonly int _lockoutDurationMinutes;
     private readonly Timer _cleanupTimer;
 
-    public RateLimitService(int maxAttempts = 5, int lockoutDurationMinutes = 15)
+    public RateLimitService(IOptions<AppSettings> settings)
     {
+      var _settings = settings.Value;
       _attempts = new ConcurrentDictionary<string, AttemptRecord>();
-      _maxAttempts = maxAttempts;
-      _lockoutDurationMinutes = lockoutDurationMinutes;
+      _maxAttempts = _settings.MAX_ATTEMPTS;
+      _lockoutDurationMinutes = _settings.LOCKOUT_DURATION_MINUTES;
 
-      _cleanupTimer = new Timer(CleanupExpiredRecords, null, 
-      TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+      _cleanupTimer = new Timer(CleanupExpiredRecords, null, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
     }
 
     public bool IsBlocked(string identifier)
@@ -43,7 +47,7 @@ namespace Cryptex.Services
       if (IsBlocked(request.File!.FileName))
       {
         var remaining = GetRemainingBlockTime(request.File.FileName);
-        throw new Exception($"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
+        throw new BlockedFileException($"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
       }
       return false;
     }
@@ -130,10 +134,10 @@ namespace Cryptex.Services
       if (decodeRemainAttempts == 0)
       {
         var lockoutTime = GetRemainingBlockTime(request.File.FileName);
-        throw new Exception($"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");  
+        throw new BlockedFileException($"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");  
       }
 
-      throw new Exception($"Błędne hasło. Pozostało prób: {decodeRemainAttempts}");
+      throw new BlockedFileException($"Błędne hasło. Pozostało prób: {decodeRemainAttempts}");
 
     }
 

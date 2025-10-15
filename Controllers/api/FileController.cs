@@ -43,20 +43,23 @@ namespace Cryptex.Controllers.api
 
                 return File(result, "application/octet-stream", $"{request.File!.FileName}.enc");
             }
-            catch (ArgumentException ex)
+            catch (Exception exception) when (exception is
+                ArgumentException or
+                InvalidPasswordException or
+                CorruptedFileException
+            )
             {
-                return BadRequest(ex.Message);
+                return BadRequest(exception.Message);
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                return StatusCode(500, $"Błąd podczas szyfrowania: {ex.Message}");
+                return StatusCode(500, $"Błąd podczas szyfrowania: {exception.Message}");
             }
         }
 
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
-
             try
             {
                 _validationService.ValidateDecrypt(request);
@@ -64,16 +67,19 @@ namespace Cryptex.Controllers.api
 
                 var fileBytes = await _fileService.FileToBytes(request);
                 var plain = _encService.Decrypt(fileBytes, request.Password!);
-
-                _rateLimitService.ResetAttempts(request.File!.FileName);
-
                 var originalFileName = _fileService.GetOriginalFileName(request);
 
+                _rateLimitService.ResetAttempts(request.File!.FileName);
+                
                 return File(plain, "application/octet-stream", originalFileName);
             }
-            catch (ExpiredFileException ex)
+            catch (Exception exception) when (exception is
+                ExpiredFileException or
+                CorruptedFileException or
+                NotSupportedException or
+                BlockedFileException)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(exception.Message);
             }
             catch (InvalidPasswordException)
             {
@@ -82,18 +88,14 @@ namespace Cryptex.Controllers.api
                     _rateLimitService.HandleFailedAttempts(request);
                     return BadRequest("Nieznany błąd.");
                 }
-                catch (Exception ex)
+                catch (BlockedFileException ex)
                 {
                     return BadRequest(ex.Message);
                 }
             }
-            catch (CorruptedFileException exception)
+            catch (Exception exception)
             {
-                return BadRequest(exception.Message);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Błąd podczas deszyfrowania: {ex.Message}");
+                return StatusCode(500, $"Błąd podczas deszyfrowania: {exception.Message}");
             }
         }
     }
