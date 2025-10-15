@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Cryptex.Models;
 
 namespace Cryptex.Services
 {
@@ -33,6 +34,16 @@ namespace Cryptex.Services
         {
           return true;
         }
+      }
+      return false;
+    }
+
+    public bool checkFileBlocked(DecryptRequest request)
+    {
+      if (IsBlocked(request.File!.FileName))
+      {
+        var remaining = GetRemainingBlockTime(request.File.FileName);
+        throw new Exception($"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
       }
       return false;
     }
@@ -96,17 +107,34 @@ namespace Cryptex.Services
 
     public (byte[]? Bytes, int Seconds) GetExpirationData(DateTime? expireTime)
     {
-        if (!expireTime.HasValue)
-            return (null, 0);
+      if (!expireTime.HasValue)
+        return (null, 0);
 
-        var expirationSpan = expireTime.Value - DateTime.UtcNow;
+      var expirationSpan = expireTime.Value - DateTime.UtcNow;
 
-        if (expirationSpan.TotalSeconds <= 0)
-            throw new ArgumentException("Czas ważności musi być w przyszłości.");
+      if (expirationSpan.TotalSeconds <= 0)
+        throw new ArgumentException("Czas ważności musi być w przyszłości.");
 
-        var bytes = BitConverter.GetBytes(expireTime.Value.ToUniversalTime().Ticks);
+      var bytes = BitConverter.GetBytes(expireTime.Value.ToUniversalTime().Ticks);
 
-        return (bytes, (int)expirationSpan.TotalSeconds);
+      return (bytes, (int)expirationSpan.TotalSeconds);
+    }
+    
+    public void HandleFailedAttempts(DecryptRequest request)
+    {
+
+      RecordFailedAttempt(request.File!.FileName);
+      var decodeAttempts = GetAttemptCount(request.File.FileName);
+      var decodeRemainAttempts = Math.Max(0, _maxAttempts - decodeAttempts);
+      
+      if (decodeRemainAttempts == 0)
+      {
+        var lockoutTime = GetRemainingBlockTime(request.File.FileName);
+        throw new Exception($"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");  
+      }
+
+      throw new Exception($"Błędne hasło. Pozostało prób: {decodeRemainAttempts}");
+
     }
 
   }

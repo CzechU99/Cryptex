@@ -46,8 +46,7 @@ namespace Cryptex.Controllers.api
                     out var iv,
                     out var salt,
                     out var passwordHash,
-                    out var algorithmByte,
-                    expirationData.Seconds
+                    out var algorithmByte
                 );
 
                 var result = _fileService.CombineEncryptedData(algorithmByte, salt, iv, cipher, passwordHash, expirationData.Bytes);
@@ -67,25 +66,15 @@ namespace Cryptex.Controllers.api
         [HttpPost("decrypt")]
         public async Task<IActionResult> Decrypt([FromForm] DecryptRequest request)
         {
-            _validationService.ValidateDecrypt(request);
 
             try
             {
-
-                if (_rateLimitService.IsBlocked(request.File!.FileName))
-                {
-                    var remaining = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
-                    return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {remaining.TotalMinutes:F0} minut.");
-                }
+                _validationService.ValidateDecrypt(request);
+                _rateLimitService.checkFileBlocked(request);
 
                 var fileBytes = await _fileService.FileToBytes(request);
 
-                var algorithmType = fileBytes[0];
-                var decodeAlgorithm = (EncryptionAlgorithm)algorithmType;
-
-                var salt = fileBytes[1..17];
-                var iv = fileBytes[17..29];
-                var passwordHash = fileBytes[^32..];
+                _fileService.extractDetailsFromFile(fileBytes, out var algorithmType, out var salt, out var iv, out var passwordHash);
 
                 byte[]? expirationBytes = null;
                 byte[] cipherWithTag;
@@ -96,7 +85,7 @@ namespace Cryptex.Controllers.api
                     {
                         var potentialTicks = BitConverter.ToInt64(fileBytes, 29);
                         var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
-                        
+
                         if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
                         {
                             expirationBytes = fileBytes[29..37];
@@ -117,9 +106,17 @@ namespace Cryptex.Controllers.api
                     cipherWithTag = fileBytes[29..^32];
                 }
 
-                var plain = _encService.Decrypt(cipherWithTag, request.Password, iv, salt, passwordHash, decodeAlgorithm, expirationBytes);
+                var plain = _encService.Decrypt(
+                    cipherWithTag,
+                    request.Password!,
+                    iv,
+                    salt,
+                    passwordHash,
+                    algorithmType,
+                    expirationBytes
+                );
 
-                _rateLimitService.ResetAttempts(request.File.FileName);
+                _rateLimitService.ResetAttempts(request.File!.FileName);
 
                 var originalFileName = request.File.FileName.Replace(".enc", "");
 
@@ -131,17 +128,15 @@ namespace Cryptex.Controllers.api
             }
             catch (InvalidPasswordException)
             {
-                _rateLimitService.RecordFailedAttempt(request.File.FileName);
-                var decodeAttempts = _rateLimitService.GetAttemptCount(request.File.FileName);
-                var decodeRemainAttempts = Math.Max(0, _rateLimitService._maxAttempts - decodeAttempts);
-                
-                if (decodeRemainAttempts == 0)
+                try
                 {
-                    var lockoutTime = _rateLimitService.GetRemainingBlockTime(request.File.FileName);
-                    return StatusCode(429, $"Zbyt wiele nieudanych prób. Spróbuj za {lockoutTime.TotalMinutes:F0} minut.");
+                    _rateLimitService.HandleFailedAttempts(request);
+                    return BadRequest("Nieznany błąd.");
                 }
-                
-                return BadRequest($"Błędne hasło. Pozostało prób: {decodeRemainAttempts}");
+                catch (Exception ex)
+                {
+                    return BadRequest(ex.Message);
+                }
             }
             catch (CorruptedFileException exception)
             {

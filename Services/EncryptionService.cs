@@ -19,7 +19,7 @@ namespace Cryptex.Services
         private const int IV_SIZE = 12;
 
         public byte[] Encrypt(byte[] data, string password, string algorithm, out byte[] iv, out byte[] salt,
-            out byte[] passwordHash, out byte[] algorithmByte, int expirationSeconds = 0)
+            out byte[] passwordHash, out byte[] algorithmByte)
         {
             salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
             iv = RandomNumberGenerator.GetBytes(IV_SIZE);
@@ -43,10 +43,13 @@ namespace Cryptex.Services
         }
 
         public byte[] Decrypt(byte[] encryptedData, string password, byte[] iv, byte[] salt,
-            byte[] passwordHash, EncryptionAlgorithm algorithm, byte[]? expireBytes)
+            byte[] passwordHash, byte algorithm, byte[]? expireBytes)
         {
 
             CheckPassword(password, salt, passwordHash);
+
+            var decodeAlgorithm = (EncryptionAlgorithm)algorithm;
+
 
             if (expireBytes != null && expireBytes.Length == 8)
             {
@@ -64,7 +67,7 @@ namespace Cryptex.Services
 
             try
             {
-                switch (algorithm)
+                switch (decodeAlgorithm)
                 {
                     case EncryptionAlgorithm.AesGcm:
                         using (var aes = new AesGcm(key, TAG_SIZE))
