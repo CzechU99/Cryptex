@@ -7,8 +7,6 @@ namespace Cryptex.Services
   {
 
     private const int HASH_SIZE = 32;
-    private const int ITERATION_COUNT = 100_000;
-    private const int TAG_SIZE = 16;
     private const int SALT_SIZE = 16;
     private const int IV_SIZE = 12;
 
@@ -44,7 +42,7 @@ namespace Cryptex.Services
 
       var algorithmType = fileBytes[0];
       var salt = fileBytes[1..(SALT_SIZE + 1)];
-      var iv = fileBytes[(SALT_SIZE + 1)..(IV_SIZE + 1)];
+      var iv = fileBytes[(SALT_SIZE + 1)..(IV_SIZE + 1 + SALT_SIZE)];
       var passwordHash = fileBytes[^HASH_SIZE..];
 
       return (algorithmType, salt, iv, passwordHash);
@@ -84,7 +82,7 @@ namespace Cryptex.Services
 
       return (cipherWithTag, expirationBytes);
     }
-    
+
     public string GetOriginalFileName(DecryptRequest request)
     {
       var originalFileName = request.File!.FileName;
@@ -93,6 +91,20 @@ namespace Cryptex.Services
         originalFileName = originalFileName[..^4];
       }
       return originalFileName;
+    }
+    
+    public void CheckFileExpiration(byte[]? expirationBytes)
+    {
+      if (expirationBytes != null && expirationBytes.Length == 8)
+      {
+        var expireTimeTicks = BitConverter.ToInt64(expirationBytes);
+        var expireTime = new DateTime(expireTimeTicks, DateTimeKind.Utc);
+
+        if (DateTime.UtcNow > expireTime)
+        {
+          throw new ExpiredFileException("Plik wygasł i nie może zostać odszyfrowany.");
+        }
+      }
     }
 
   }

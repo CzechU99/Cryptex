@@ -1,3 +1,4 @@
+using Cryptex.Exceptions;
 using Cryptex.Models;
 namespace Cryptex.Services
 {
@@ -26,7 +27,7 @@ namespace Cryptex.Services
     {
 
       if (string.IsNullOrWhiteSpace(request.Password))
-        throw new Exception("Brak hasła.");
+        throw new InvalidPasswordException("Brak hasła.");
 
       if (request.File == null)
         throw new Exception("Brak pliku.");

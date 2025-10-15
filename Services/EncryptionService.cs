@@ -51,41 +51,14 @@ namespace Cryptex.Services
             
             CheckPassword(password, salt, passwordHash);
 
-            var decodeAlgorithm = (EncryptionAlgorithm)algorithmType;
+            _fileService.CheckFileExpiration(expirationBytes);
 
-
-            if (expirationBytes != null && expirationBytes.Length == 8)
-            {
-                var expireTimeTicks = BitConverter.ToInt64(expirationBytes);
-                var expireTime = new DateTime(expireTimeTicks, DateTimeKind.Utc);
-
-                if (DateTime.UtcNow > expireTime)
-                {
-                    throw new ExpiredFileException("Plik wygasł i nie może być odszyfrowany.");
-                }
-            }
-
-            var (cipher, tag, plain) = SplitEncryptedData(fileBytes);
+            var (cipher, tag, plain) = SplitEncryptedData(cipherWithTag);
             var key = DeriveKey(password, salt);
 
             try
             {
-                switch (decodeAlgorithm)
-                {
-                    case EncryptionAlgorithm.AesGcm:
-                        using (var aes = new AesGcm(key, TAG_SIZE))
-                        {
-                            aes.Decrypt(iv, cipher, tag, plain);
-                        }
-                        break;
-
-                    case EncryptionAlgorithm.ChaCha20Poly1305:
-                        using (var chacha = new ChaCha20Poly1305(key))
-                        {
-                            chacha.Decrypt(iv, cipher, tag, plain);
-                        }
-                        break;
-                }
+                DecryptWithAlgorithm(algorithmType, key, iv, cipher, tag, plain);
             }
             catch (AuthenticationTagMismatchException)
             {
@@ -154,14 +127,40 @@ namespace Cryptex.Services
             var salt = RandomNumberGenerator.GetBytes(SALT_SIZE);
             var iv = RandomNumberGenerator.GetBytes(IV_SIZE);
             var passwordHash = ComputePasswordHash(password, salt);
-            
+
+            if(algorithm != "AES-GCM" && algorithm != "ChaCha20-Poly1305")
+                throw new ArgumentException("Nieznany algorytm szyfrowania");
+
             var encAlgorithm = algorithm == "ChaCha20-Poly1305"
                 ? EncryptionAlgorithm.ChaCha20Poly1305
                 : EncryptionAlgorithm.AesGcm;
 
             var algorithmByte = (EncryptionAlgorithm)encAlgorithm;
-            
+
             return (salt, iv, passwordHash, algorithmByte);
+        }
+        
+        private void DecryptWithAlgorithm(byte algorithm, byte[] key, byte[] iv, byte[] cipher, byte[] tag, byte[] plain)
+        {
+            var decodeAlgorithm = (EncryptionAlgorithm)algorithm;
+
+            switch (decodeAlgorithm)
+            {
+                case EncryptionAlgorithm.AesGcm:
+                    var aes = new AesGcm(key, TAG_SIZE);
+                    aes.Decrypt(iv, cipher, tag, plain);
+                    break;
+
+                case EncryptionAlgorithm.ChaCha20Poly1305:
+                    using (var chacha = new ChaCha20Poly1305(key))
+                    {
+                        chacha.Decrypt(iv, cipher, tag, plain);
+                    }
+                    break;
+
+                default:
+                    throw new NotSupportedException($"Nieobsługiwany algorytm: {algorithm}");
+            }
         }
         
     }
