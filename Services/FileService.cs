@@ -57,27 +57,27 @@ namespace Cryptex.Services
       {
         try
         {
-          var potentialTicks = BitConverter.ToInt64(fileBytes, 29);
+          var potentialTicks = BitConverter.ToInt64(fileBytes, 1 + IV_SIZE + SALT_SIZE);
           var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
 
           if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
           {
-            expirationBytes = fileBytes[29..37];
-            cipherWithTag = fileBytes[37..^32];
+            expirationBytes = fileBytes[(1 + IV_SIZE + SALT_SIZE)..(1 + IV_SIZE + SALT_SIZE + 8)];
+            cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE + 8)..^HASH_SIZE];
           }
           else
           {
-            cipherWithTag = fileBytes[29..^32];
+            cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
           }
         }
         catch
         {
-          cipherWithTag = fileBytes[29..^32];
+          cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
         }
       }
       else
       {
-        cipherWithTag = fileBytes[29..^32];
+        cipherWithTag = fileBytes[(1 + IV_SIZE + SALT_SIZE)..^HASH_SIZE];
       }
 
       return (cipherWithTag, expirationBytes);

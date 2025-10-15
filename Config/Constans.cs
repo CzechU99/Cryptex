@@ -7,7 +7,7 @@ namespace Cryptex.Config
         public const int TAG_SIZE = 32;
         public const int HASH_SIZE = 32;
         public const int ITERATION_COUNT = 100_000;
-
+        public const int MIN_PASSWORD_LENGTH = 8;
         public const string DEFAULT_ENCRYPTION_ALGORITHM = "AES-GCM";
     }
 }
