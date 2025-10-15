@@ -74,37 +74,9 @@ namespace Cryptex.Controllers.api
 
                 var fileBytes = await _fileService.FileToBytes(request);
 
-                _fileService.extractDetailsFromFile(fileBytes, out var algorithmType, out var salt, out var iv, out var passwordHash);
+                _fileService.ExtractDetailsFromFile(fileBytes, out var algorithmType, out var salt, out var iv, out var passwordHash);
 
-                byte[]? expirationBytes = null;
-                byte[] cipherWithTag;
-
-                if (fileBytes.Length > 37)
-                {
-                    try
-                    {
-                        var potentialTicks = BitConverter.ToInt64(fileBytes, 29);
-                        var potentialDate = new DateTime(potentialTicks, DateTimeKind.Utc);
-
-                        if (potentialDate > DateTime.UtcNow.AddYears(-100) && potentialDate < DateTime.UtcNow.AddYears(100))
-                        {
-                            expirationBytes = fileBytes[29..37];
-                            cipherWithTag = fileBytes[37..^32];
-                        }
-                        else
-                        {
-                            cipherWithTag = fileBytes[29..^32];
-                        }
-                    }
-                    catch
-                    {
-                        cipherWithTag = fileBytes[29..^32];
-                    }
-                }
-                else
-                {
-                    cipherWithTag = fileBytes[29..^32];
-                }
+                _fileService.ExtractCipherWithTagFromFile(fileBytes, out var cipherWithTag, out var expirationBytes);
 
                 var plain = _encService.Decrypt(
                     cipherWithTag,
@@ -118,7 +90,7 @@ namespace Cryptex.Controllers.api
 
                 _rateLimitService.ResetAttempts(request.File!.FileName);
 
-                var originalFileName = request.File.FileName.Replace(".enc", "");
+                var originalFileName = _fileService.GetOriginalFileName(request);
 
                 return File(plain, "application/octet-stream", originalFileName);
             }
