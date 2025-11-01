@@ -1,0 +1,258 @@
+<script setup>
+import { ref, computed } from "vue"
+import FancySelect from "./components/FancySelect.vue"
+
+const tab = ref("encrypt")
+
+// Encrypt state
+const encFile = ref(null)
+const encFileName = ref("Brak pliku")
+const encPassword = ref("")
+const encShow = ref(false)
+const encAlgorithm = ref("AES-GCM")
+const algOptions = [
+  { label: "AES-GCM", value: "AES-GCM" },
+  { label: "ChaCha20-Poly1305", value: "ChaCha20-Poly1305" },
+]
+const encExpire = ref("") // datetime-local string
+const encBusy = ref(false)
+const encMsg = ref("")
+const encErr = ref("")
+
+// Decrypt state
+const decFile = ref(null)
+const decFileName = ref("Brak pliku")
+const decPassword = ref("")
+const decShow = ref(false)
+const decBusy = ref(false)
+const decMsg = ref("")
+const decErr = ref("")
+
+const passwordStrength = computed(() => {
+  const p = encPassword.value || ""
+  let s = 0
+  if (p.length >= 8) s++
+  if (/[A-Z]/.test(p) && /[a-z]/.test(p)) s++
+  if (/\d/.test(p)) s++
+  if (/[^A-Za-z0-9]/.test(p)) s++
+  return s
+})
+
+function parseFilenameFromCD(disposition, fallback) {
+  if (!disposition) return fallback
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition)
+  const name = decodeURIComponent(match?.[1] || match?.[2] || "")
+  return name || fallback
+}
+
+async function encryptSubmit() {
+  encErr.value = ""
+  encMsg.value = ""
+  if (!encFile.value?.files?.[0]) { encErr.value = "Wybierz plik do zaszyfrowania."; return }
+  if (!encPassword.value) { encErr.value = "Podaj has³o."; return }
+  encBusy.value = true
+  try {
+    const fd = new FormData()
+    fd.append("File", encFile.value.files[0])
+    fd.append("Password", encPassword.value)
+    fd.append("Algorithm", encAlgorithm.value)
+    if (encExpire.value) {
+      const date = new Date(encExpire.value)
+      fd.append("ExpireTime", date.toISOString())
+    }
+    const res = await fetch("/api/File/encrypt", { method: "POST", body: fd })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || "B³¹d podczas szyfrowania.")
+    }
+    const blob = await res.blob()
+    const fallback = `${encFile.value.files[0].name}.enc`
+    const cd = res.headers.get("content-disposition")
+    const name = parseFilenameFromCD(cd, fallback)
+    triggerDownload(blob, name)
+    encMsg.value = "Plik zaszyfrowany pomyœlnie."
+  } catch (e) {
+    encErr.value = e.message || "Wyst¹pi³ b³¹d."
+  } finally {
+    encBusy.value = false
+  }
+}
+
+async function decryptSubmit() {
+  decErr.value = ""
+  decMsg.value = ""
+  if (!decFile.value?.files?.[0]) { decErr.value = "Wybierz plik .enc do odszyfrowania."; return }
+  if (!decPassword.value) { decErr.value = "Podaj has³o."; return }
+  decBusy.value = true
+  try {
+    const fd = new FormData()
+    fd.append("File", decFile.value.files[0])
+    fd.append("Password", decPassword.value)
+    const res = await fetch("/api/File/decrypt", { method: "POST", body: fd })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || "B³¹d podczas deszyfrowania.")
+    }
+    const blob = await res.blob()
+    const cd = res.headers.get("content-disposition")
+    const name = parseFilenameFromCD(cd, "plik")
+    triggerDownload(blob, name)
+    decMsg.value = "Plik odszyfrowany pomyœlnie."
+  } catch (e) {
+    decErr.value = e.message || "Wyst¹pi³ b³¹d."
+  } finally {
+    decBusy.value = false
+  }
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function onEncFileChange(e) {
+  encFileName.value = e?.target?.files?.[0]?.name || "Brak pliku"
+}
+function onDecFileChange(e) {
+  decFileName.value = e?.target?.files?.[0]?.name || "Brak pliku"
+}
+function clearEncFile() {
+  if (encFile.value) encFile.value.value = ""
+  encFileName.value = "Brak pliku"
+}
+function clearDecFile() {
+  if (decFile.value) decFile.value.value = ""
+  decFileName.value = "Brak pliku"
+}
+
+function genEncPassword() {
+  const length = 16
+  const lowers = 'abcdefghjkmnpqrstuvwxyz'
+  const uppers = 'ABCDEFGHJKMNPQRSTUVWXYZ'
+  const digits = '23456789'
+  const symbols = '!@#$%^&*()-_=+[]{};:,.?'
+  function pick(str) { return str[Math.floor(Math.random() * str.length)] }
+  const all = lowers + uppers + digits + symbols
+  let pwd = [pick(lowers), pick(uppers), pick(digits), pick(symbols)]
+  for (let i = pwd.length; i < length; i++) pwd.push(pick(all))
+  for (let i = pwd.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[pwd[i], pwd[j]] = [pwd[j], pwd[i]]
+  }
+  encPassword.value = pwd.join('')
+  encShow.value = true
+}
+</script>
+
+<template>
+  <div class="container">
+    <div class="card">
+      <div class="brand">
+        <div class="dot" />
+        <h1>Cryptex</h1>
+      </div>
+      <div class="sub">Szyfruj i odszyfruj pliki lokalnie w przegl¹darce przy u¿yciu Twojego has³a. Serwer obs³uguje AES-GCM oraz ChaCha20-Poly1305.</div>
+
+      <div class="tabs">
+        <div class="tab" :class="{ active: tab==='encrypt' }" @click="tab='encrypt'">Szyfrowanie</div>
+        <div class="tab" :class="{ active: tab==='decrypt' }" @click="tab='decrypt'">Deszyfrowanie</div>
+      </div>
+
+      <form v-if="tab==='encrypt'" @submit.prevent="encryptSubmit" class="grid" style="margin-top: 12px;" novalidate>
+        <div class="field">
+          <label class="label" for="enc-file">Plik do zaszyfrowania</label>
+          <div class="filepicker">
+            <input id="enc-file" name="file" class="sr-only" type="file" ref="encFile" @change="onEncFileChange" />
+            <button type="button" class="btn secondary" @click="encFile && encFile.click()">Wybierz plik</button>
+            <div class="filename" :class="{ placeholder: encFileName==='Brak pliku' }">{{ encFileName }}</div>
+          </div>
+        </div>
+
+        <!-- Hidden username for password managers/accessibility -->
+        <label class="sr-only" for="enc-username">Nazwa u¿ytkownika (opcjonalnie)</label>
+        <input id="enc-username" name="username" class="sr-only" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" />
+
+        <div class="field">
+          <label class="label" for="enc-password">Has³o</label>
+          <div class="row">
+            <input id="enc-password" name="password" :type="encShow?'text':'password'" class="input grow" v-model.trim="encPassword" placeholder="Co najmniej 8 znaków" autocomplete="new-password" />
+            <button type="button" class="btn secondary" @click="encShow=!encShow" aria-label="Poka¿/ukryj has³o"></button>
+            <button type="button" class="btn secondary" @click="genEncPassword" title="Wygeneruj mocne has³o">Losowe</button>
+          </div>
+          <div class="muted">Si³a has³a</div>
+          <div class="strength" :class="'level-' + passwordStrength" aria-label="Si³a has³a">
+            <div v-for="i in 4" :key="i" class="seg" :class="{ filled: passwordStrength >= i }"></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="enc-algo">Algorytm</label>
+          <FancySelect id="enc-algo" name="algorithm" :options="algOptions" v-model="encAlgorithm" />
+        </div>
+
+        <div class="field">
+          <label class="label" for="enc-expire">Data wygaœniêcia (opcjonalnie)</label>
+          <input id="enc-expire" name="expire" class="input" type="datetime-local" v-model="encExpire" autocomplete="off" />
+          <div class="muted">Jeœli ustawisz, plik nie odszyfruje siê po up³ywie daty.</div>
+        </div>
+      </form>
+
+      <form v-if="tab==='decrypt'" @submit.prevent="decryptSubmit" class="grid" style="margin-top: 12px;" novalidate>
+        <div class="field">
+          <label class="label" for="dec-file">Plik .enc</label>
+          <div class="filepicker">
+            <input id="dec-file" name="file" class="sr-only" type="file" ref="decFile" accept=".enc" @change="onDecFileChange" />
+            <button type="button" class="btn secondary" @click="decFile && decFile.click()">Wybierz plik</button>
+            <div class="filename" :class="{ placeholder: decFileName==='Brak pliku' }">{{ decFileName }}</div>
+          </div>
+        </div>
+        <!-- Hidden username for password managers/accessibility -->
+        <label class="sr-only" for="dec-username">Nazwa u¿ytkownika (opcjonalnie)</label>
+        <input id="dec-username" name="username" class="sr-only" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" />
+
+        <div class="field">
+          <label class="label" for="dec-password">Has³o</label>
+          <div class="row">
+            <input id="dec-password" name="password" :type="decShow?'text':'password'" class="input grow" v-model.trim="decPassword" placeholder="Has³o u¿yte przy szyfrowaniu" autocomplete="current-password" />
+            <button type="button" class="btn secondary" @click="decShow=!decShow"></button>
+          </div>
+        </div>
+      </form>
+
+      <div class="divider" />
+
+      <div class="footer">
+        <div>
+          <span v-if="tab==='encrypt' && encErr" class="error">{{ encErr }}</span>
+          <span v-if="tab==='encrypt' && encMsg" class="success">{{ encMsg }}</span>
+          <span v-if="tab==='decrypt' && decErr" class="error">{{ decErr }}</span>
+          <span v-if="tab==='decrypt' && decMsg" class="success">{{ decMsg }}</span>
+        </div>
+        <div class="row">
+          <button v-if="tab==='decrypt'" type="button" class="btn secondary" :disabled="decBusy" @click="clearDecFile">Wyczyœæ</button>
+          <button v-if="tab==='decrypt'" type="submit" form="" class="btn" :disabled="decBusy" @click.prevent="decryptSubmit">
+            <span v-if="decBusy" class="spinner" />
+            <span>{{ decBusy ? 'Odszyfrowywanie...' : 'Odszyfruj plik' }}</span>
+          </button>
+
+          <button v-if="tab==='encrypt'" type="button" class="btn secondary" :disabled="encBusy" @click="clearEncFile">Wyczyœæ</button>
+          <button v-if="tab==='encrypt'" type="submit" form="" class="btn" :disabled="encBusy" @click.prevent="encryptSubmit">
+            <span v-if="encBusy" class="spinner" />
+            <span>{{ encBusy ? 'Szyfrowanie...' : 'Zaszyfruj plik' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<style scoped>
+</style>
+
