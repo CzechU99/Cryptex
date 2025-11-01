@@ -31,7 +31,7 @@ defineExpose({ clear })
     <label class="label" :for="id">{{ label }}</label>
     <div class="filepicker">
       <input :id="id" class="sr-only" type="file" :accept="accept" ref="inputRef" @change="onChange" />
-      <button type="button" class="btn secondary" @click="inputRef && inputRef.click()">WYBIERZ PLIK</button>
+      <button type="button" class="btn secondary" @click="inputRef && inputRef.click()">Wybierz plik</button>
       <div class="filename" :class="{ placeholder: fileName === 'Brak pliku' }">{{ fileName }}</div>
     </div>
   </div>

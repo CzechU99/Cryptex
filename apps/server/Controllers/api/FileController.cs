@@ -6,7 +6,7 @@ using Cryptex.Exceptions;
 namespace Cryptex.Controllers.api
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/")]
     public class FileController : ControllerBase
     {
         private readonly EncryptionService _encService;
