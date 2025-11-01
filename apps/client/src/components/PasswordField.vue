@@ -1,5 +1,5 @@
-<script setup>
-import { ref, computed, watch } from 'vue'
+﻿<script setup>
+import { ref, computed } from "vue"
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -8,6 +8,8 @@ const props = defineProps({
   placeholder: { type: String, default: 'Co najmniej 8 znaków' },
   autocomplete: { type: String, default: 'new-password' },
   showStrength: { type: Boolean, default: false },
+  showRandom: { type: Boolean, default: true },
+  includeUsernameHidden: { type: Boolean, default: true },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -45,10 +47,14 @@ function genPassword() {
 <template>
   <div class="field">
     <label class="label" :for="id">{{ label }}</label>
+    <template v-if="includeUsernameHidden">
+      <label class="sr-only" :for="id + '-username'">Nazwa użytkownika (opcjonalnie)</label>
+      <input :id="id + '-username'" name="username" class="sr-only" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" />
+    </template>
     <div class="row">
       <input :id="id" name="password" :type="show ? 'text' : 'password'" class="input grow" :placeholder="placeholder" :autocomplete="autocomplete" :value="modelValue" @input="e => emit('update:modelValue', e.target.value)" />
       <button type="button" class="btn secondary" @click="show=!show" :aria-label="show ? 'Ukryj hasło' : 'Pokaż hasło'"></button>
-      <button type="button" class="btn secondary" @click="genPassword" title="Wygeneruj mocne hasło">Losowe</button>
+      <button v-if="showRandom" type="button" class="btn secondary" @click="genPassword" title="Wygeneruj mocne hasło">Losowe</button>
     </div>
     <template v-if="showStrength">
       <div class="muted">Siła hasła</div>
