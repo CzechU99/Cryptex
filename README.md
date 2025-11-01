@@ -1,17 +1,17 @@
-﻿<h2 align=\"center\"><strong>Cryptex — Szyfrowanie i odszyfrowywanie plików (AES‑GCM / ChaCha20‑Poly1305)</strong></h2>
+﻿<h2 align="center"><strong>Cryptex — Szyfrowanie i odszyfrowywanie plików (AES‑GCM / ChaCha20‑Poly1305)</strong></h2>
 
-<div align=\"center\">
+<div align="center">
   <p>
-    <img alt=\"Status\" src=\"https://img.shields.io/badge/status-active-0ea5e9\">
-    <img alt=\"Licencja\" src=\"https://img.shields.io/badge/licencja-private-64748b\">
+    <img alt="Status" src="https://img.shields.io/badge/status-active-0ea5e9">
+    <img alt="Licencja" src="https://img.shields.io/badge/licencja-private-64748b">
   </p>
   <p>
-    <img alt=\".NET\" src=\"https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white\">
-    <img alt=\"ASP.NET Core\" src=\"https://img.shields.io/badge/ASP.NET_Core-512BD4?logo=dotnet&logoColor=white\">
-    <img alt=\"C#\" src=\"https://img.shields.io/badge/C%23-239120?logo=csharp&logoColor=white\">
-    <img alt=\"Vue\" src=\"https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white\">
-    <img alt=\"Vite\" src=\"https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white\">
-    <img alt=\"Axios\" src=\"https://img.shields.io/badge/Axios-HTTP-5a29e4\">
+    <img alt=".NET" src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white">
+    <img alt="ASP.NET Core" src="https://img.shields.io/badge/ASP.NET_Core-512BD4?logo=dotnet&logoColor=white">
+    <img alt="C#" src="https://img.shields.io/badge/C%23-239120?logo=csharp&logoColor=white">
+    <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white">
+    <img alt="Vite" src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white">
+    <img alt="Axios" src="https://img.shields.io/badge/Axios-HTTP-5a29e4">
   </p>
 </div>
 
@@ -26,7 +26,7 @@ Cryptex to prosta i szybka aplikacja do bezpiecznego szyfrowania i odszyfrowywan
 ## Technologie
 
 - ASP.NET Core 8 (.NET 8) — REST API i logika kryptograficzna
-- C# — implementacja AEAD, PBKDF2 (Rfc2898DeriveBytes), limit prób
+- C# — implementacja AEAD, PBKDF2 (Rfc2898DeriveBytes), limit prób, blokowanie pliku
 - Vue 3 + Vite — front‑end (SPA), proxy do API w dev
 - Axios/Fetch — wywołania API (multipart/form‑data)
 - Swagger — dokumentacja API w dev
@@ -40,13 +40,13 @@ Cryptex to prosta i szybka aplikacja do bezpiecznego szyfrowania i odszyfrowywan
 - Ochrona hasła: PBKDF2 (SHA‑256, iteracje) z solą
 - Opcjonalny czas wygaśnięcia pliku (UTC ticks w nagłówku danych)
 - Kontrola prób deszyfrowania i blokada pliku po limitach
-- Frontend: generator „Losowe”, pasek siły hasła, stylowany select i file picker, log „konsola”, dostępnościowy układ pól (ukryte username)
+- Frontend: generator „Losowe”, pasek siły hasła, stylowany select i file picker, log „konsola”
 
 ---
 
 ## Struktura zaszyfrowanego pliku
 
-Parametry (domyślne z pps/server/appsettings.json):
+Parametry (domyślne z apps/server/Config/AppSettings.cs):
 
 - SALT_SIZE = 16
 - IV_SIZE = 12
@@ -60,17 +60,16 @@ Układ bajtów (bez czasu wygaśnięcia):
    - 0 = AES‑GCM, 1 = ChaCha20‑Poly1305
 2. Salt (16 bajtów)
 3. IV/Nonce (12 bajtów)
-4. Cipher || Tag (N + 16 bajtów)
+4. Cipher + Tag (N + 16 bajtów)
    - ostatnie 16 bajtów tego segmentu to Tag
 5. PasswordHash (32 bajty)
    - PBKDF2 (SHA‑256) z salt i ITERATION_COUNT
 
 Układ z czasem wygaśnięcia (ExpireTime):
 
-- Pozycja po wstawieniu: tuż po IV (offset 1 + SALT_SIZE + IV_SIZE = 29)
 - Wstawiane bajty: Int64 ticks w UTC (8 bajtów, little‑endian)
 
-Zatem przy wygaśnięciu: Algorithm | Salt | IV | ExpireTicks(8) | Cipher || Tag | PasswordHash
+Zatem przy wygaśnięciu: Algorithm | Salt | IV | ExpireTicks(8) | Cipher + Tag | PasswordHash
 
 Logika:
 
@@ -88,20 +87,12 @@ Base (dev): /api
   - Password: string, min. 8 znaków [wymagane]
   - Algorithm: AES-GCM lub ChaCha20-Poly1305 [opcjonalne]
   - ExpireTime: ISO8601 (UTC) [opcjonalne]
-  - Response: pplication/octet-stream — zwraca plik *.enc
+  - Response: application/octet-stream — zwraca plik *.enc
 
 - POST /api/File/decrypt — multipart/form‑data
   - File: plik *.enc [wymagane]
   - Password: string [wymagane]
-  - Response: pplication/octet-stream — zwraca pierwotny plik
-
-Przykłady curl:
-
-`ash
-curl -k -F "File=@/path/file.pdf" -F "Password=MoceHaslo123!" -F "Algorithm=AES-GCM" -F "ExpireTime=2026-01-01T12:00:00Z" https://localhost:7278/api/File/encrypt -o file.pdf.enc
-
-curl -k -F "File=@file.pdf.enc" -F "Password=MoceHaslo123!" https://localhost:7278/api/File/decrypt -o file.pdf
-`
+  - Response: application/octet-stream — zwraca pierwotny plik
 
 Typowe błędy (400):
 
@@ -116,41 +107,39 @@ Typowe błędy (400):
 
 Back‑end (HTTPS):
 
-`ash
+```Bash
 cd apps/server
 dotnet run --launch-profile https
-# Swagger: https://localhost:7278/swagger
-`
+```
 
 Front‑end:
 
-`ash
+```Bash
 cd apps/client
 npm install
 npm run dev
-# Vite proxy -> https://localhost:7278 (secure:false)
-`
+```
 
 Konfiguracja frontu:
 
-- pps/client/.env
-  - VITE_API_BASE_URL=/api — korzysta z Vite proxy w dev
-- pps/client/vite.config.js
-  - proxy: /api → https://localhost:7278 (bez weryfikacji certyfikatu dev)
+- apps/client/.env
+  - VITE_API_BASE_URL="http://localhost:5024" — adres serwera 
+
+- apps/client/vite.config.js
+  - proxy: /api → https://localhost:72785024 
 
 ---
 
 ## Struktura projektu
 
-- pps/server
+- apps/server
   - Controllers/api/FileController.cs — encrypt/decrypt
   - Services/* — EncryptionService, FileService, ValidationService, RateLimitService, ExpireTimeService
   - Models/FileModel.cs — EncryptRequest, DecryptRequest
-  - Config/AppSettings.cs + ppsettings.json — rozmiary SALT/IV/TAG/HASH, iteracje itp.
+  - Config/AppSettings.cs + appsettings.json — rozmiary SALT/IV/TAG/HASH, iteracje itp.
 
-- pps/client
+- apps/client
   - src/components — EncryptForm, DecryptForm, PasswordField, FancySelect, FilePicker, ConsoleLog
-  - src/api/fileService.js — pomocnicze wywołania API (FormData)
   - src/style.css — motyw, konsola, selekt, picker pliku
 
 ---
