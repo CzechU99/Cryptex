@@ -55,6 +55,15 @@ Projekt składa się z dwóch części:
 
 ---
 
+## 📸 Zrzuty ekranu
+
+| Widok | Podgląd |
+|-------|----------|
+| Szyfrowanie | <img src="./images/szyfrowanie.png" alt="Szyfrowanie" width="400"> |
+| Deszyfrowanie | <img src="./images/deszyfrowanie.png" alt="Deszyfrowanie" width="400"> |
+
+---
+
 ## 🔒 Struktura zaszyfrowanego pliku
 
 Parametry domyślne (`apps/server/Config/AppSettings.cs`):
